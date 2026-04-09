@@ -13,8 +13,7 @@ jobs:
       - name: Trigger Coolify deployment
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          COOLIFY_URL: https://coolify.tidale.us
-          COOLIFY_APP_UUID: kq7wvi699zairzxy66xh989y
+          COOLIFY_WEBHOOK: https://coolify.tidale.us/api/v1/deploy?uuid=kq7wvi699zairzxy66xh989y&force=false
         run: |
           if [ -z "$COOLIFY_TOKEN" ]; then
             echo "COOLIFY_TOKEN is not configured"
@@ -23,4 +22,4 @@ jobs:
 
           curl --fail --silent --show-error \
             -H "Authorization: Bearer $COOLIFY_TOKEN" \
-            "$COOLIFY_URL/api/v1/applications/$COOLIFY_APP_UUID/start?force=true&instant_deploy=true"
+            "$COOLIFY_WEBHOOK"
