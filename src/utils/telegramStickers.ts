@@ -11,6 +11,7 @@ const CONCURRENCY = parseInt(process.env.CONCURRENCY || '5');
 const MC_STICKER_PACK_ID_PREFIX = 'MoreStickers:Telegram:Pack';
 const MC_STICKER_ID_PREFIX = 'MoreStickers:Telegram:Sticker';
 const EXTERNAL_URL = process.env.EXTERNAL_URL!;
+const STICKER_PACK_FILE_EXTENSION = '.stickerpack';
 
 function toMcStickerPackId(stickerSetName: string) {
   return `${MC_STICKER_PACK_ID_PREFIX}:${stickerSetName}`;
@@ -28,21 +29,31 @@ function generateExternalUrl(
   return `${EXTERNAL_URL}/sticker/telegram/${stickerPackName}/${stickerId}.${fileExtension}`;
 }
 
+export function generateStickerPackDownloadUrl(stickerPackName: string) {
+  return `${EXTERNAL_URL}/stickerpack/telegram/${stickerPackName}`;
+}
+
+function getStickerFileExtension(filePath?: string) {
+  return path
+    .extname(filePath ?? '')
+    .replace(/^\./, '')
+    .toLowerCase();
+}
+
 export function generateStickerPackDirPath(stickerSetName: string) {
   return path.join(DATA_DIR, stickerSetName);
 }
 
-export function generateStickerPackFilePath(stickerSetName: string){
-  return path.join(
-    DATA_DIR,
-    stickerSetName + '.telegram.stickerpack',
-  );
+export function generateStickerPackFilePath(stickerSetName: string) {
+  return path.join(DATA_DIR, `${stickerSetName}${STICKER_PACK_FILE_EXTENSION}`);
 }
 
 async function isStickerPackDownloaded(stickerSetName: string) {
   try {
-    const p = generateStickerPackDirPath(stickerSetName);
-    await fsp.access(p);
+    await Promise.all([
+      fsp.access(generateStickerPackDirPath(stickerSetName)),
+      fsp.access(generateStickerPackFilePath(stickerSetName)),
+    ]);
     return true;
   } catch {
     return false;
@@ -57,7 +68,12 @@ async function downloadSticker(
   if (queue.length === 0) return;
   const sticker = queue.shift()!;
   const stickerFile = await telegram.getFile(sticker.file_id);
-  const stickerFileType = stickerFile.file_path?.split('.').pop() || '';
+  const stickerFileType = getStickerFileExtension(stickerFile.file_path);
+  if (!stickerFileType) {
+    throw new Error(
+      `Could not determine file extension for sticker ${sticker.file_unique_id}`,
+    );
+  }
   const stickerPackDirPath = generateStickerPackDirPath(stickerSet.name);
   const stickerFilePath = path.join(
     stickerPackDirPath,
@@ -68,22 +84,28 @@ async function downloadSticker(
   const fileStream = fs.createWriteStream(stickerFilePath);
   let retries = 5;
   let response: Response | null = null;
-  // eslint-disable-next-line no-constant-condition
-  while (retries--) {
+  let lastError: unknown;
+  while (retries-- > 0) {
     try {
       response = await fetch(fileLink);
+      if (!response.ok) {
+        throw new Error(
+          `Failed to download sticker ${sticker.file_unique_id}: ${response.status} ${response.statusText}`,
+        );
+      }
       break;
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      lastError = error;
+      console.error(error);
       if (retries === 0) {
-        await downloadSticker(queue, telegram, stickerSet);
-        return;
+        throw lastError;
       }
     }
   }
   if (!response?.body) {
-    await downloadSticker(queue, telegram, stickerSet);
-    return;
+    throw new Error(
+      `Sticker download returned no body for ${sticker.file_unique_id}`,
+    );
   }
   const stream = Readable.fromWeb(response.body);
   stream.pipe(fileStream);
@@ -93,7 +115,7 @@ async function downloadSticker(
 
 async function downloadStickerPack(telegram: Telegram, stickerSet: StickerSet) {
   const stickerSetDir = generateStickerPackDirPath(stickerSet.name);
-   await fsp.mkdir(stickerSetDir, { recursive: true });
+  await fsp.mkdir(stickerSetDir, {recursive: true});
   const queue = stickerSet.stickers.slice();
 
   const downloadPromises = Array.from({length: CONCURRENCY}, () =>
@@ -112,7 +134,12 @@ async function toMcStickerPack(
 ): Promise<StickerPack> {
   const stickerPs = stickerSet.stickers.map(async sticker => {
     const stickerFile = await telegram.getFile(sticker.file_id);
-    const stickerFileType = stickerFile.file_path?.split('.').pop() || '';
+    const stickerFileType = getStickerFileExtension(stickerFile.file_path);
+    if (!stickerFileType) {
+      throw new Error(
+        `Could not determine file extension for sticker ${sticker.file_unique_id}`,
+      );
+    }
     return {
       id: toMcStickerId(sticker.file_unique_id, stickerSet.name),
       image: generateExternalUrl(
@@ -120,7 +147,7 @@ async function toMcStickerPack(
         sticker.file_unique_id,
         stickerFileType,
       ),
-      title: sticker.emoji,
+      title: sticker.emoji ?? sticker.file_unique_id,
       stickerPackId: toMcStickerPackId(stickerSet.name),
       filename: stickerFile.file_unique_id + '.' + stickerFileType,
       isAnimated: sticker.is_animated,

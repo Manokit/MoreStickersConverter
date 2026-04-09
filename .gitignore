@@ -4,3 +4,4 @@ tsconfig.tsbuildinfo
 data
 compose.yaml
 build
+.omx/

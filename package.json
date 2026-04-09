@@ -8,6 +8,8 @@
     "lint": "gts lint",
     "clean": "gts clean",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node build/src/index.js",
     "fix": "gts fix"
   },
   "keywords": [],
