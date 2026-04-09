@@ -16,6 +16,7 @@ RUN pnpm run build && ls -laR /app/build
 
 FROM node:alpine
 WORKDIR /app
+RUN apk add --no-cache curl
 COPY --from=build /app/build /app
 COPY --from=prod-deps /app/node_modules /app/node_modules
 CMD [ "node", "src/index.js" ]
