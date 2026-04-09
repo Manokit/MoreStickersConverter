@@ -25,7 +25,7 @@ bot.on(message('sticker'), async ctx => {
   );
   if (await isStickerPackDownloaded(stickerPackName)) {
     await ctx.reply(
-      `Sticker pack ready for Equicord:\n${stickerPackDownloadUrl}`,
+      `Download URL for Equicord (.stickerpack file, then use Add from File):\n${stickerPackDownloadUrl}`,
     );
     await ctx.replyWithDocument(Input.fromLocalFile(mcStickerPackPath));
     return;
@@ -54,7 +54,9 @@ bot.on(message('sticker'), async ctx => {
     return;
   }
   await ctx.replyWithDocument(Input.fromLocalFile(mcStickerPackPath));
-  await ctx.reply(`Import URL:\n${stickerPackDownloadUrl}`);
+  await ctx.reply(
+    `Download URL (.stickerpack file, then use Add from File):\n${stickerPackDownloadUrl}`,
+  );
 });
 
 export {bot};
