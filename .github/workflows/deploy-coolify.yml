@@ -1,0 +1,26 @@
+name: Deploy to Coolify
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Coolify deployment
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_URL: https://coolify.tidale.us
+          COOLIFY_APP_UUID: kq7wvi699zairzxy66xh989y
+        run: |
+          if [ -z "$COOLIFY_TOKEN" ]; then
+            echo "COOLIFY_TOKEN is not configured"
+            exit 1
+          fi
+
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $COOLIFY_TOKEN" \
+            "$COOLIFY_URL/api/v1/applications/$COOLIFY_APP_UUID/start?force=true&instant_deploy=true"
