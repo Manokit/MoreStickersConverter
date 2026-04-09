@@ -2,6 +2,7 @@ import fsp from 'fs/promises';
 import fs from 'fs';
 import path from 'path';
 import {Readable} from 'stream';
+import {spawn} from 'child_process';
 import {Telegram} from 'telegraf';
 import {StickerPack, Sticker as McSticker} from './mcStickerPack.js';
 import {Sticker, StickerSet} from 'telegraf/types';
@@ -40,6 +41,57 @@ function getStickerFileExtension(filePath?: string) {
     .toLowerCase();
 }
 
+function getOutputFileExtension(sticker: Sticker, originalExtension: string) {
+  if (sticker.is_video) {
+    return 'gif';
+  }
+
+  return originalExtension;
+}
+
+async function runFfmpeg(args: string[]) {
+  await new Promise<void>((resolve, reject) => {
+    const ffmpeg = spawn('ffmpeg', args, {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+
+    ffmpeg.stderr.on('data', chunk => {
+      stderr += chunk.toString();
+    });
+
+    ffmpeg.on('error', error => {
+      reject(error);
+    });
+
+    ffmpeg.on('close', code => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(
+        new Error(
+          `ffmpeg exited with code ${code}: ${stderr.trim().slice(-2000)}`,
+        ),
+      );
+    });
+  });
+}
+
+async function convertVideoStickerToGif(inputPath: string, outputPath: string) {
+  await runFfmpeg([
+    '-y',
+    '-i',
+    inputPath,
+    '-filter_complex',
+    '[0:v]fps=15,scale=160:160:force_original_aspect_ratio=decrease:flags=lanczos,pad=160:160:(ow-iw)/2:(oh-ih)/2:color=0x00000000,split[s0][s1];[s0]palettegen=stats_mode=single:reserve_transparent=1[p];[s1][p]paletteuse=new=1:alpha_threshold=10',
+    '-loop',
+    '0',
+    outputPath,
+  ]);
+}
+
 export function generateStickerPackDirPath(stickerSetName: string) {
   return path.join(DATA_DIR, stickerSetName);
 }
@@ -68,20 +120,25 @@ async function downloadSticker(
   if (queue.length === 0) return;
   const sticker = queue.shift()!;
   const stickerFile = await telegram.getFile(sticker.file_id);
-  const stickerFileType = getStickerFileExtension(stickerFile.file_path);
-  if (!stickerFileType) {
+  const sourceFileType = getStickerFileExtension(stickerFile.file_path);
+  if (!sourceFileType) {
     throw new Error(
       `Could not determine file extension for sticker ${sticker.file_unique_id}`,
     );
   }
+  const outputFileType = getOutputFileExtension(sticker, sourceFileType);
   const stickerPackDirPath = generateStickerPackDirPath(stickerSet.name);
-  const stickerFilePath = path.join(
+  const sourceStickerFilePath = path.join(
     stickerPackDirPath,
-    stickerFile.file_unique_id + '.' + stickerFileType,
+    stickerFile.file_unique_id + '.' + sourceFileType,
+  );
+  const outputStickerFilePath = path.join(
+    stickerPackDirPath,
+    stickerFile.file_unique_id + '.' + outputFileType,
   );
 
   const fileLink = await telegram.getFileLink(stickerFile.file_id);
-  const fileStream = fs.createWriteStream(stickerFilePath);
+  const fileStream = fs.createWriteStream(sourceStickerFilePath);
   let retries = 5;
   let response: Response | null = null;
   let lastError: unknown;
@@ -110,6 +167,13 @@ async function downloadSticker(
   const stream = Readable.fromWeb(response.body);
   stream.pipe(fileStream);
   await new Promise(resolve => fileStream.on('finish', resolve));
+  if (sticker.is_video) {
+    await convertVideoStickerToGif(
+      sourceStickerFilePath,
+      outputStickerFilePath,
+    );
+    await fsp.rm(sourceStickerFilePath, {force: true});
+  }
   await downloadSticker(queue, telegram, stickerSet);
 }
 
@@ -134,23 +198,24 @@ async function toMcStickerPack(
 ): Promise<StickerPack> {
   const stickerPs = stickerSet.stickers.map(async sticker => {
     const stickerFile = await telegram.getFile(sticker.file_id);
-    const stickerFileType = getStickerFileExtension(stickerFile.file_path);
-    if (!stickerFileType) {
+    const sourceFileType = getStickerFileExtension(stickerFile.file_path);
+    if (!sourceFileType) {
       throw new Error(
         `Could not determine file extension for sticker ${sticker.file_unique_id}`,
       );
     }
+    const outputFileType = getOutputFileExtension(sticker, sourceFileType);
     return {
       id: toMcStickerId(sticker.file_unique_id, stickerSet.name),
       image: generateExternalUrl(
         stickerSet.name,
         sticker.file_unique_id,
-        stickerFileType,
+        outputFileType,
       ),
       title: sticker.emoji ?? sticker.file_unique_id,
       stickerPackId: toMcStickerPackId(stickerSet.name),
-      filename: stickerFile.file_unique_id + '.' + stickerFileType,
-      isAnimated: sticker.is_animated,
+      filename: stickerFile.file_unique_id + '.' + outputFileType,
+      isAnimated: sticker.is_animated || sticker.is_video,
     } as McSticker;
   });
   const stickers = await Promise.all(stickerPs);

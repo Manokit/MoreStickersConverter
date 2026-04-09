@@ -13,6 +13,7 @@ This project includes both the Telegram bot logic and the HTTP server used to ho
 - Download a sticker pack directly by pack name
 - Automatically download sticker assets
 - Convert stickers into `.stickerpack` format
+- Convert Telegram video stickers into GIFs for Equicord compatibility
 - Host sticker images through the built-in HTTP server
 - Stickerpacks reference external URLs instead of embedding images
 

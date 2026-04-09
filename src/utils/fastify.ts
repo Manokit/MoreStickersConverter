@@ -26,6 +26,8 @@ function setCorsHeaders(reply: FastifyReply) {
 
 function getStickerContentType(fileExtension: string) {
   switch (fileExtension.toLowerCase()) {
+    case 'gif':
+      return 'image/gif';
     case 'webp':
       return 'image/webp';
     case 'webm':
@@ -103,7 +105,7 @@ app.get(
       return;
     }
 
-    if (!/^(?:web[pm]|tgs)$/i.test(fileExtension)) {
+    if (!/^(?:gif|web[pm]|tgs)$/i.test(fileExtension)) {
       await reply.code(400).send('Invalid file extension');
       return;
     }
